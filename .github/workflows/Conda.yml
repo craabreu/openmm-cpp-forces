@@ -3,50 +3,111 @@ name: Conda
 on:
   release:
     types: [published]
+  # Recipe changes are checked with one variant per platform
   pull_request:
     branches:
       - "main"
-  # Rebuild and upload the packages of an existing release tag
+    paths:
+      - "devtools/conda-recipes/**"
+      - "devtools/conda-envs/conda-build.yml"
+      - ".github/workflows/Conda.yml"
+  # Build every variant: a dry run from the selected branch, or the packages of an existing tag
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build, such as v0.2.0"
-        required: true
+        description: "Release tag to build, such as v0.2.0 (empty for a dry run of the selected branch)"
+        required: false
+        default: ""
+      upload:
+        description: "Upload the packages to the mdtools channel (requires a tag)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build and deploy ${{ matrix.platform }} packages
+  setup:
     # Prereleases are not deployed
     if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.plan.outputs.ref }}
+      version: ${{ steps.plan.outputs.version }}
+      upload: ${{ steps.plan.outputs.upload }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      pythons: ${{ steps.plan.outputs.pythons }}
+      expected: ${{ steps.plan.outputs.expected }}
+    steps:
+      - id: plan
+        name: "Source, version, upload, and build matrix"
+        # User-controlled values go through the environment, never into the script text
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_UPLOAD: ${{ inputs.upload }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -e
+          if [ "$EVENT" == "release" ]; then
+            ref=$RELEASE_TAG; version=$RELEASE_TAG; upload=true
+          elif [ "$EVENT" == "workflow_dispatch" ] && [ -n "$INPUT_TAG" ]; then
+            ref=$INPUT_TAG; version=$INPUT_TAG; upload=$INPUT_UPLOAD
+          else
+            ref=$SHA; version=v0.0.0; upload=false
+            if [ "$INPUT_UPLOAD" == "true" ]; then
+              echo "::error::Uploading requires a release tag"
+              exit 1
+            fi
+          fi
+          python3 - "$EVENT" >> $GITHUB_OUTPUT <<'EOF'
+          import json, sys
+          # Each OpenMM build uses the SWIG version of its release (see conda_build_config.yaml)
+          openmms = {"8.4": "4.4.0", "8.5": "4.4.1", "8.6": "4.5.0"}
+          pythons = ["3.10", "3.11", "3.12", "3.13", "3.14"]
+          platforms = [("ubuntu-latest", "linux-64"), ("macos-15", "osx-arm64"), ("macos-15-intel", "osx-64")]
+          if sys.argv[1] == "pull_request":
+              openmms = {"8.6": openmms["8.6"]}
+              pythons = ["3.12"]
+          matrix = [{"os": os, "platform": platform, "openmm": openmm, "swig": swig}
+                    for os, platform in platforms for openmm, swig in openmms.items()]
+          print(f"matrix={json.dumps(matrix)}")
+          print(f"pythons={json.dumps(pythons)}")
+          print(f"expected={len(matrix) * len(pythons)}")
+          EOF
+          echo "ref=$ref" >> $GITHUB_OUTPUT
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "upload=$upload" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+
+  build:
+    needs: setup
+    name: Build ${{ matrix.platform }} packages for OpenMM ${{ matrix.openmm }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux-64
-
-          - os: macos-15
-            platform: osx-arm64
-
-          - os: macos-15-intel
-            platform: osx-64
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.setup.outputs.ref }}
           fetch-depth: 0
 
-      - name: Additional info about the build
+      - name: Release tag matches the source version
+        # anaconda.org keeps every upload, so a forgotten version bump would publish a wrong version
+        if: needs.setup.outputs.version != 'v0.0.0'
         shell: bash
+        env:
+          TAG: ${{ needs.setup.outputs.version }}
         run: |
-          uname -a
-          df -h
-          ulimit -a
+          SOURCE=$(sed -nE 's/^PROJECT\(OpenMMCPPForces VERSION ([0-9.]+)\)/\1/ip' CMakeLists.txt)
+          if [ "${TAG#v}" != "$SOURCE" ]; then
+            echo "::error::Release tag $TAG does not match version $SOURCE in CMakeLists.txt"
+            exit 1
+          fi
 
       - uses: mamba-org/setup-micromamba@v2
         with:
@@ -55,50 +116,64 @@ jobs:
           create-args: >-
             python=3.12
 
-      - name: Release tag matches the source version
-        # anaconda.org keeps every upload, so a forgotten version bump would publish a wrong version
-        if: github.event_name != 'pull_request'
-        shell: bash
-        env:
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
-        run: |
-          SOURCE=$(sed -nE 's/^PROJECT\(OpenMMCPPForces VERSION ([0-9.]+)\)/\1/ip' CMakeLists.txt)
-          if [ "${TAG#v}" != "$SOURCE" ]; then
-            echo "::error::Release tag $TAG does not match version $SOURCE in CMakeLists.txt"
-            exit 1
-          fi
-
-      - name: Conda Build and Upload
+      - name: Conda Build
         shell: bash -l {0}
         working-directory: ./devtools/conda-recipes/anaconda
         env:
-          EVENT: ${{ github.event_name }}
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          PLUGIN_VERSION: ${{ needs.setup.outputs.version }}
+          OPENMM: ${{ matrix.openmm }}
+          SWIG: ${{ matrix.swig }}
+          PYTHONS: ${{ needs.setup.outputs.pythons }}
         run: |
           set -e
-          if [ "$EVENT" == "pull_request" ]; then
-            # One variant per platform; every variant is built for releases
-            export PLUGIN_VERSION=v0.0.0
-            VARIANTS=(--variants "{python: '3.12', openmm: '8.6', swig: '4.5.0'}")
-          else
-            export PLUGIN_VERSION=$TAG
-            VARIANTS=()
-          fi
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             export CONDA_BUILD_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
           fi
-          echo "::group::Building conda packages for version $PLUGIN_VERSION"
-          outdir=$(mktemp -d)
-          conda build . --no-anaconda-upload -c conda-forge "${VARIANTS[@]}" --output-folder $outdir
-          echo "::endgroup::"
-          PACKAGES=$(find $outdir \( -name 'openmm-cpp-forces-*.conda' -o -name 'openmm-cpp-forces-*.tar.bz2' \))
-          test -n "$PACKAGES" || { echo "No conda packages found in $outdir"; exit 1; }
-          echo "$PACKAGES"
-          if [ "$EVENT" == "pull_request" ]; then
-            echo "Deployment is deactivated in pull requests"
-          else
-            echo "::group::Uploading packages to mdtools conda channel"
-            export ANACONDA_API_TOKEN=${{ secrets.ANACONDA_TOKEN }}
-            anaconda upload --user mdtools --force --label main $PACKAGES
-            echo "::endgroup::"
+          VARIANTS="{openmm: '$OPENMM', swig: '$SWIG', python: $PYTHONS}"
+          echo "Variants: $VARIANTS"
+          conda build . --no-anaconda-upload -c conda-forge --variants "$VARIANTS" --output-folder $RUNNER_TEMP/out
+          mkdir $RUNNER_TEMP/packages
+          find $RUNNER_TEMP/out \( -name 'openmm-cpp-forces-*.conda' -o -name 'openmm-cpp-forces-*.tar.bz2' \) \
+            -exec cp {} $RUNNER_TEMP/packages/ \;
+          ls $RUNNER_TEMP/packages
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conda-${{ matrix.platform }}-${{ matrix.openmm }}
+          path: ${{ runner.temp }}/packages/*
+          if-no-files-found: error
+
+  upload:
+    # Only after every variant built and passed its tests, so a release is never partial
+    needs: [setup, build]
+    if: needs.setup.outputs.upload == 'true'
+    name: Upload to the mdtools channel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: conda-*
+          path: packages
+          merge-multiple: true
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: upload
+          create-args: >-
+            python=3.12
+            anaconda-client
+
+      - name: Upload
+        shell: bash -l {0}
+        env:
+          EXPECTED: ${{ needs.setup.outputs.expected }}
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          set -e
+          ls packages
+          FOUND=$(ls packages | wc -l)
+          if [ "$FOUND" -ne "$EXPECTED" ]; then
+            echo "::error::Found $FOUND packages, expected $EXPECTED"
+            exit 1
           fi
+          anaconda upload --user mdtools --force --label main packages/*
