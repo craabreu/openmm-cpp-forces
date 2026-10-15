@@ -8,49 +8,37 @@ on:
     branches:
       - "main"
   schedule:
-    # Weely tests run on Sundays at 4 AM UTC (12 AM EST):
+    # Weekly tests run on Sundays at 4 AM UTC (12 AM EST):
     - cron: "0 4 * * 0"
 
 jobs:
   unix:
-    runs-on: ${{ matrix.os }}
-    name: Python ${{ matrix.python-version }}, OpenMM ${{ matrix.openmm-version }}, GCC ${{ matrix.gcc-version }}
+    runs-on: ubuntu-24.04
+    name: Linux (Python ${{ matrix.python-version }}, OpenMM ${{ matrix.openmm-version }}, SWIG ${{ matrix.swig-version }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Oldest supported versions
-          - os: ubuntu-latest
-            python-version: "3.9"
-            openmm-version: "8.1"
-            gcc-version: "9"
-
-          # Latest supported versions
-          - os: ubuntu-latest
-            python-version: "3.11"
-            openmm-version: "8.1"
-            gcc-version: "13"
+          - python-version: "3.13"
+            openmm-version: "8.6"
+            swig-version: "4.5"
+          - python-version: "3.12"
+            openmm-version: "8.4"
+            swig-version: "4.4"
 
     steps:
       - name: "Check out"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: "Additional info about the build"
-        shell: bash
-        run: |
-          uname -a
-          df -h
-          ulimit -a
-
-      - name: "Install Micromamba"
-        uses: mamba-org/setup-micromamba@v1
+      - name: "Install dependencies with micromamba"
+        uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: devtools/conda-envs/build-${{ matrix.os }}.yml
+          environment-file: devtools/conda-envs/build.yml
           environment-name: build
           create-args: >-
             python=${{ matrix.python-version }}
-            gxx_linux-64=${{ matrix.gcc-version }}
             openmm=${{ matrix.openmm-version }}
+            swig=${{ matrix.swig-version }}
 
       - name: "List conda packages"
         shell: bash -l {0}
@@ -67,17 +55,22 @@ jobs:
         shell: bash -l {0}
         run: |
           cd build
-          make -j2 install
-          make -j2 PythonWrapper
+          make -j3 install
+          make -j3 PythonWrapper
           pip install --no-deps -e python/
 
-      - name: "Run C++ test"
+      - name: "List plugins"
+        shell: bash -l {0}
+        run: |
+          python -c "import openmm as mm; print('---Loaded---', *mm.pluginLoadedLibNames, '---Failed---', *mm.Platform.getPluginLoadFailures(), sep='\n')"
+
+      - name: "Run C++ tests"
         shell: bash -l {0}
         run: |
           cd build
           ctest --output-on-failure
 
-      - name: "Run Python test"
+      - name: "Run Python tests"
         shell: bash -l {0}
         run: |
           cd build/python

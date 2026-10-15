@@ -7,41 +7,35 @@ on:
   pull_request:
     branches:
       - "main"
-  schedule:
-    # Weely tests run on Sundays at 4 AM UTC (12 AM EST):
-    - cron: "0 4 * * 0"
 
 jobs:
   unix:
-    runs-on: ${{ matrix.os }}
-    name: Python ${{ matrix.python-version }}, OpenMM ${{ matrix.openmm-version }}
+    runs-on: macos-15
+    name: MacOS (Python ${{ matrix.python-version }}, OpenMM ${{ matrix.openmm-version }}, SWIG ${{ matrix.swig-version }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            python-version: "3.9"
-            openmm-version: "8.1"
+          - python-version: "3.13"
+            openmm-version: "8.6"
+            swig-version: "4.5"
 
     steps:
       - name: "Check out"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: "Additional info about the build"
-        shell: bash
-        run: |
-          uname -a
-          df -h
-          ulimit -a
+      - name: "Use the Xcode SDK"
+        run: echo "SDKROOT=$(xcrun --show-sdk-path)" >> ${GITHUB_ENV}
 
-      - name: "Install Micromamba"
-        uses: mamba-org/setup-micromamba@v1
+      - name: "Install dependencies with micromamba"
+        uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: devtools/conda-envs/build-${{ matrix.os }}.yml
+          environment-file: devtools/conda-envs/build.yml
           environment-name: build
           create-args: >-
             python=${{ matrix.python-version }}
             openmm=${{ matrix.openmm-version }}
+            swig=${{ matrix.swig-version }}
 
       - name: "List conda packages"
         shell: bash -l {0}
@@ -58,17 +52,22 @@ jobs:
         shell: bash -l {0}
         run: |
           cd build
-          make -j2 install
-          make -j2 PythonWrapper
+          make -j3 install
+          make -j3 PythonWrapper
           pip install --no-deps -e python/
 
-      - name: "Run C++ test"
+      - name: "List plugins"
+        shell: bash -l {0}
+        run: |
+          python -c "import openmm as mm; print('---Loaded---', *mm.pluginLoadedLibNames, '---Failed---', *mm.Platform.getPluginLoadFailures(), sep='\n')"
+
+      - name: "Run C++ tests"
         shell: bash -l {0}
         run: |
           cd build
           ctest --output-on-failure
 
-      - name: "Run Python test"
+      - name: "Run Python tests"
         shell: bash -l {0}
         run: |
           cd build/python
