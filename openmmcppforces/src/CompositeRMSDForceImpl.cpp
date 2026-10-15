@@ -173,9 +173,12 @@ double CompositeRMSDForceImpl::computeForce(ContextImpl& context, const vector<V
         resetForces = false;
     }
 
+    // The centroid terms of the gradient vanish because both sets of coordinates are
+    // centered within each group, so the scale is the same for all groups.
+
+    double scale = 1.0 / (rmsd*numParticles);
     index = 0;
     for (auto& group : groups) {
-        double scale = 1.0 / (rmsd*group.size());
         for (int i : group) {
             const Vec3& p = referencePos[index];
             Vec3 rotatedRef(
