@@ -146,10 +146,49 @@ void testRMSD() {
     ASSERT(rmsd1 > 0.9*estimate);
 }
 
+void testForcesWithMultipleGroups() {
+    // With groups of different sizes, the forces must still be minus the gradient of
+    // the RMSD.  Compare them with central finite differences of the energy.
+
+    const int numParticles = 20;
+    System system;
+    vector<Vec3> referencePos(numParticles);
+    vector<Vec3> positions(numParticles);
+    OpenMM_SFMT::SFMT sfmt;
+    init_gen_rand(1, sfmt);
+    for (int i = 0; i < numParticles; ++i) {
+        system.addParticle(1.0);
+        referencePos[i] = Vec3(genrand_real2(sfmt), genrand_real2(sfmt), genrand_real2(sfmt))*2;
+        positions[i] = referencePos[i] + Vec3(genrand_real2(sfmt), genrand_real2(sfmt), genrand_real2(sfmt))*0.3;
+    }
+    CompositeRMSDForce* force = new CompositeRMSDForce(referencePos);
+    force->addGroup({0, 1, 2, 3});
+    force->addGroup({4, 5, 6, 7, 8, 9, 10});
+    force->addGroup({11, 12, 13, 14, 15, 16, 17, 18, 19});
+    system.addForce(force);
+    VerletIntegrator integrator(0.001);
+    Context context(system, integrator, platform);
+    context.setPositions(positions);
+    vector<Vec3> forces = context.getState(State::Forces).getForces();
+    const double delta = 1e-5;
+    for (int i = 0; i < numParticles; i++)
+        for (int k = 0; k < 3; k++) {
+            vector<Vec3> displaced = positions;
+            displaced[i][k] += delta;
+            context.setPositions(displaced);
+            double energy1 = context.getState(State::Energy).getPotentialEnergy();
+            displaced[i][k] -= 2*delta;
+            context.setPositions(displaced);
+            double energy2 = context.getState(State::Energy).getPotentialEnergy();
+            ASSERT_EQUAL_TOL(-(energy1-energy2)/(2*delta), forces[i][k], 1e-6);
+        }
+}
+
 int main(int argc, char* argv[]) {
     try {
         initializeTests(argc, argv);
         testRMSD();
+        testForcesWithMultipleGroups();
     }
     catch(const exception& e) {
         cout << "exception: " << e.what() << endl;
