@@ -62,10 +62,9 @@ project = 'OpenMM CPP Forces'
 copyright = ('2024, Charlles Abreu. Project based on OpenMM')
 author = 'Charlles Abreu'
 
-# The short X.Y version
-version = ''
-# The full version, including alpha/beta/rc tags
-release = ''
+# The documented version: a release tag, "dev" for main, or the installed package version
+version = os.getenv("CPF_VERSION", openmmcppforces.__version__)
+release = version
 
 pygments_style = 'trac'
 templates_path = ['.']
