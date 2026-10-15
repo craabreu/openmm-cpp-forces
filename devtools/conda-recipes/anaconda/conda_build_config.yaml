@@ -1,5 +1,27 @@
 python:
-    - 3.9
-    - 3.10
-    - 3.11
-    - 3.12
+  - 3.10
+  - 3.11
+  - 3.12
+  - 3.13
+  - 3.14
+# One build per OpenMM minor, with the SWIG version of that OpenMM release
+openmm:
+  - 8.4
+  - 8.5
+  - 8.6
+swig:
+  - 4.4.0
+  - 4.4.1
+  - 4.5.0
+# Without this, conda-build defaults to numpy 1.22, older than OpenMM accepts
+numpy:
+  - 2
+zip_keys:
+  - [openmm, swig]
+c_stdlib:
+  - sysroot                    # [linux]
+  - macosx_deployment_target   # [osx]
+c_stdlib_version:
+  - 2.28                       # [linux]
+  - 10.13                      # [osx and x86_64]
+  - 11.0                       # [osx and arm64]

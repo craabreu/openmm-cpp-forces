@@ -8,21 +8,17 @@ on:
     branches:
       - "main"
 
+permissions:
+  contents: write  # to push the gh-pages branch
+
 jobs:
   unix:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     name: Build and Deploy to GitHub Pages
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
 
     steps:
       - name: "Check out"
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.REPO_TOKEN }}
+        uses: actions/checkout@v4
 
       - name: "Additional info about the build"
         shell: bash
@@ -32,13 +28,13 @@ jobs:
           ulimit -a
 
       - name: "Install Micromamba"
-        uses: mamba-org/setup-micromamba@v1
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: devtools/conda-envs/build-docs.yml
           environment-name: docs
           create-args: >-
-            python=3.11
-            openmm=8.1
+            python=3.13
+            openmm=8.6
 
       - name: "List conda packages"
         shell: bash -l {0}
@@ -55,8 +51,8 @@ jobs:
         shell: bash -l {0}
         run: |
           cd build
-          make -j2 install
-          make -j2 PythonWrapper
+          make -j4 install
+          make -j4 PythonWrapper
           pip install --no-deps -e python/
 
       - name: "Build docs"
@@ -65,6 +61,7 @@ jobs:
           sphinx-build ./docs ./html
 
       - name: "Deploy docs to GitHub Pages"
+        if: github.event_name != 'pull_request'
         shell: bash -l {0}
         run: |
           git reset --hard HEAD
@@ -79,9 +76,5 @@ jobs:
           git add -f docs/*
           git add -f docs/.nojekyll
           git commit -m "Docs from $GITHUB_REF $GITHUB_SHA" || echo "Branch is up to date"
-          if [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
-            echo "Deployment is deactivated in pull requests"
-          else
-            git push -f origin gh-pages
-          fi
+          git push -f origin gh-pages
           echo "::endgroup::"
