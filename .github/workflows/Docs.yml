@@ -7,6 +7,14 @@ on:
   pull_request:
     branches:
       - "main"
+  release:
+    types: [published]
+  # Rebuild the docs of an existing release tag (also updates latest)
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to rebuild, such as v0.2.0"
+        required: true
 
 permissions:
   contents: write  # to push the gh-pages branch
@@ -15,10 +23,16 @@ jobs:
   unix:
     runs-on: ubuntu-latest
     name: Build and Deploy to GitHub Pages
+    # Prereleases are not deployed
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
 
     steps:
       - name: "Check out"
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: "Additional info about the build"
         shell: bash
@@ -58,12 +72,19 @@ jobs:
       - name: "Build docs"
         shell: bash -l {0}
         run: |
+          export CPF_VERSION=${RELEASE_TAG:-dev}
           sphinx-build ./docs ./html
 
       - name: "Deploy docs to GitHub Pages"
         if: github.event_name != 'pull_request'
         shell: bash -l {0}
         run: |
+          set -e
+          if [ -n "$RELEASE_TAG" ]; then
+            subdirs=("$RELEASE_TAG" latest)
+          else
+            subdirs=(development)
+          fi
           git reset --hard HEAD
           set -x
           echo "::group::Push page to gh-pages branch"
@@ -71,10 +92,17 @@ jobs:
           git config user.email "$(git show --format=%ae -s)"
           git fetch origin
           git switch gh-pages
-          rsync -va --delete-excluded html/ docs/
+          # Pages from before versioned docs lived directly in docs/; keep only version folders
+          find docs -mindepth 1 -maxdepth 1 ! -name 'v*' ! -name latest ! -name development -exec rm -rf {} +
+          for subdir in "${subdirs[@]}"; do
+            rsync -a --delete html/ docs/$subdir/
+          done
+          # The root redirects to the latest release, or to development before the first release
+          target=development
+          [ -d docs/latest ] && target=latest
+          printf '<!DOCTYPE html>\n<html>\n<head>\n    <meta http-equiv="refresh" content="0; url=%s/" />\n</head>\n<body>\n    <p>Redirecting to the <a href="%s/">documentation</a>...</p>\n</body>\n</html>\n' $target $target > docs/index.html
           touch docs/.nojekyll
-          git add -f docs/*
-          git add -f docs/.nojekyll
+          git add -A -f docs
           git commit -m "Docs from $GITHUB_REF $GITHUB_SHA" || echo "Branch is up to date"
-          git push -f origin gh-pages
+          git push origin gh-pages
           echo "::endgroup::"

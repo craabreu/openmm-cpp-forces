@@ -80,7 +80,7 @@ Copyright (c) 2024, [Redesign Science](https://www.redesignscience.com)
 
 
 [CompositeRMSDForce]:
-    https://craabreu.github.io/openmm-cpp-forces/pythonapi/CompositeRMSDForce.html
+    https://craabreu.github.io/openmm-cpp-forces/latest/pythonapi/CompositeRMSDForce.html
 [Github Pages]:
     https://craabreu.github.io/openmm-cpp-forces
 [mdtools]:
