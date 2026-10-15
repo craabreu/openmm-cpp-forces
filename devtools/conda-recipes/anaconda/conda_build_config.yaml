@@ -13,6 +13,9 @@ swig:
   - 4.4.0
   - 4.4.1
   - 4.5.0
+# Without this, conda-build defaults to numpy 1.22, older than OpenMM accepts
+numpy:
+  - 2
 zip_keys:
   - [openmm, swig]
 c_stdlib:
