@@ -15,9 +15,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
-    "openmm >= 8.1"
+    "openmm >= 8.4"
 ]
 
 [project.optional-dependencies]
