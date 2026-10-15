@@ -75,20 +75,21 @@ jobs:
           EVENT: ${{ github.event_name }}
           TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
+          set -e
           if [ "$EVENT" == "pull_request" ]; then
             # One variant per platform; every variant is built for releases
             export PLUGIN_VERSION=v0.0.0
-            VARIANTS="--variants {python: '3.12', openmm: '8.6', swig: '4.5.0'}"
+            VARIANTS=(--variants "{python: '3.12', openmm: '8.6', swig: '4.5.0'}")
           else
             export PLUGIN_VERSION=$TAG
-            VARIANTS=""
+            VARIANTS=()
           fi
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             export CONDA_BUILD_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
           fi
           echo "::group::Building conda packages for version $PLUGIN_VERSION"
           outdir=$(mktemp -d)
-          conda build . --no-anaconda-upload -c conda-forge $VARIANTS --output-folder $outdir
+          conda build . --no-anaconda-upload -c conda-forge "${VARIANTS[@]}" --output-folder $outdir
           echo "::endgroup::"
           PACKAGES=$(find $outdir \( -name 'openmm-cpp-forces-*.conda' -o -name 'openmm-cpp-forces-*.tar.bz2' \))
           test -n "$PACKAGES" || { echo "No conda packages found in $outdir"; exit 1; }
