@@ -8,7 +8,7 @@
  *  A plugin for distributing platform-agnostic OpenMM Forces                 *
  *                                                                            *
  *  Copyright (c) 2024 Charlles Abreu                                         *
- *  https://github.com/RedesignScience/openmm-cpp-forces                      *
+ *  https://github.com/craabreu/openmm-cpp-forces                             *
  * -------------------------------------------------------------------------- */
 
 #include "CompositeRMSDForce.h"

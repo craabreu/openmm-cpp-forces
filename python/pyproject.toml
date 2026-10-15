@@ -8,7 +8,7 @@ description = "Platform-agnostic OpenMM Forces"
 version = "@PROJECT_VERSION@"
 readme = "README.md"
 authors = [
-    { name = "Charlles Abreu", email = "RedesignScience@gmail.com" }
+    { name = "Charlles Abreu", email = "craabreu@gmail.com" }
 ]
 license = { text = "MIT" }
 classifiers = [
