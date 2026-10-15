@@ -1,4 +1,4 @@
-{% set plugin_version = environ['PLUGIN_VERSION'].lstrip('v') %}
+{% set plugin_version = environ.get('PLUGIN_VERSION', 'v0.0.0').lstrip('v') %}
 
 package:
   name: openmm-cpp-forces
@@ -12,34 +12,38 @@ build:
 
 requirements:
   build:
-    - python
-    - swig <4.1
-    - openmm >=8.1
     - {{ compiler('cxx') }}
+    - {{ stdlib('c') }}
     - cmake
     - make
-    - setuptools
-    - pip
-    - numpy >=1.19
+    - swig {{ swig }}
   host:
     - python
-    - openmm >=8.1
+    - openmm {{ openmm }}
+    - numpy
+    - pip
+    - setuptools
   run:
     - python
     - {{ pin_compatible('openmm', max_pin='x.x') }}
+    - numpy
 
 test:
+  requires:
+    - pytest
   imports:
     - openmmcppforces
+  commands:
+    - pytest -v --pyargs openmmcppforces.tests
 
 about:
-  home: https://github.com/RedesignScience/openmm-cpp-forces
+  home: https://github.com/craabreu/openmm-cpp-forces
   summary: Platform-agnostic OpenMM Forces
   license: MIT
   license_file: LICENSE.md
-  doc_url: https://RedesignScience.github.io/openmm-cpp-forces
-  dev_url: https://github.com/RedesignScience/openmm-cpp-forces
+  doc_url: https://craabreu.github.io/openmm-cpp-forces
+  dev_url: https://github.com/craabreu/openmm-cpp-forces
 
 extra:
   recipe-maintainers:
-    - RedesignScience
+    - craabreu

@@ -2,19 +2,19 @@ OpenMM-CPP-Forces Plugin
 ========================
 
 [![Linux](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/Linux.yml/badge.svg
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/Linux.yml/badge.svg
 )](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/Linux.yml
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/Linux.yml
 )
 [![MacOS](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/MacOS.yml/badge.svg
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/MacOS.yml/badge.svg
 )](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/MacOS.yml
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/MacOS.yml
 )
 [![Docs](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/Docs.yml/badge.svg
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/Docs.yml/badge.svg
 )](
-    https://github.com/RedesignScience/openmm-cpp-forces/actions/workflows/Docs.yml
+    https://github.com/craabreu/openmm-cpp-forces/actions/workflows/Docs.yml
 )
 [![License: MIT](
     https://img.shields.io/badge/License-MIT-green.svg
@@ -80,9 +80,9 @@ Copyright (c) 2024, [Redesign Science](https://www.redesignscience.com)
 
 
 [CompositeRMSDForce]:
-    https://RedesignScience.github.io/openmm-cpp-forces/pythonapi/CompositeRMSDForce.html
+    https://craabreu.github.io/openmm-cpp-forces/pythonapi/CompositeRMSDForce.html
 [Github Pages]:
-    https://RedesignScience.github.io/openmm-cpp-forces
+    https://craabreu.github.io/openmm-cpp-forces
 [mdtools]:
     https://anaconda.org/mdtools/openmm-cpp-forces
 [OpenMM]:
