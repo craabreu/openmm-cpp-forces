@@ -1,0 +1,33 @@
+CompositeRMSDForce
+==================
+
+.. currentmodule:: openmmcppforces.openmmcppforces
+.. autoclass:: CompositeRMSDForce
+    :members:
+    :inherited-members:
+    :member-order: alphabetical
+    :show-inheritance:
+    :exclude-members: thisown, isinstance
+
+    .. automethod:: __init__
+
+    .. rubric:: Methods
+
+    .. autosummary::
+        addGroup
+        getForceGroup
+        getGroup
+        getName
+        getNumGroups
+        getReferencePositions
+        setForceGroup
+        setGroup
+        setName
+        setReferencePositions
+        updateParametersInContext
+        usesPeriodicBoundaryConditions
+
+    .. rubric:: Attributes
+
+    .. autosummary::
+        thisown
