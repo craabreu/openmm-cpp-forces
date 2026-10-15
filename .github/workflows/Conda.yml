@@ -1,28 +1,45 @@
 name: Conda
 
 on:
-  push:
-    tags:
-      - v*
+  release:
+    types: [published]
   pull_request:
     branches:
-        - "main"
+      - "main"
+  # Rebuild and upload the packages of an existing release tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build, such as v0.2.0"
+        required: true
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  build:
     name: Build and deploy ${{ matrix.platform }} packages
+    # Prereleases are not deployed
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             platform: linux-64
 
-          - os: macos-latest
+          - os: macos-15
+            platform: osx-arm64
+
+          - os: macos-15-intel
             platform: osx-64
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Additional info about the build
         shell: bash
@@ -31,30 +48,57 @@ jobs:
           df -h
           ulimit -a
 
-      - uses: mamba-org/provision-with-micromamba@main
+      - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: devtools/conda-envs/conda-build.yml
           environment-name: build
-          channels: conda-forge
-          extra-specs: |
-            python=3.11
+          create-args: >-
+            python=3.12
+
+      - name: Release tag matches the source version
+        # anaconda.org keeps every upload, so a forgotten version bump would publish a wrong version
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          SOURCE=$(sed -nE 's/^PROJECT\(OpenMMCPPForces VERSION ([0-9.]+)\)/\1/ip' CMakeLists.txt)
+          if [ "${TAG#v}" != "$SOURCE" ]; then
+            echo "::error::Release tag $TAG does not match version $SOURCE in CMakeLists.txt"
+            exit 1
+          fi
 
       - name: Conda Build and Upload
         shell: bash -l {0}
         working-directory: ./devtools/conda-recipes/anaconda
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
-          export PLUGIN_VERSION=${{ github.ref_name }}
-          [ "$GITHUB_EVENT_NAME" == "pull_request" ] && export PLUGIN_VERSION=v0.0.0
-          echo "::group::Building conda package for version $PLUGIN_VERSION"
-          outdir=$(mktemp -d)
-          conda mambabuild . --no-anaconda-upload --variants "{target_platform: ${{ matrix.platform }}}" --output-folder $outdir
-          echo "::endgroup::"
-          echo "::group::Uploading packages to mdtools conda channel"
-          if [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
-              echo "Deployment is deactivated in pull requests"
+          set -e
+          if [ "$EVENT" == "pull_request" ]; then
+            # One variant per platform; every variant is built for releases
+            export PLUGIN_VERSION=v0.0.0
+            VARIANTS=(--variants "{python: '3.12', openmm: '8.6', swig: '4.5.0'}")
           else
-              export ANACONDA_API_TOKEN=${{ secrets.ANACONDA_TOKEN }}
-              PACKAGES=$(find $outdir -name openmm-cpp-forces-*.tar.bz2)
-              anaconda upload --user mdtools --force --label main $PACKAGES
+            export PLUGIN_VERSION=$TAG
+            VARIANTS=()
           fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CONDA_BUILD_SYSROOT=$(xcrun --sdk macosx --show-sdk-path)
+          fi
+          echo "::group::Building conda packages for version $PLUGIN_VERSION"
+          outdir=$(mktemp -d)
+          conda build . --no-anaconda-upload -c conda-forge "${VARIANTS[@]}" --output-folder $outdir
           echo "::endgroup::"
+          PACKAGES=$(find $outdir \( -name 'openmm-cpp-forces-*.conda' -o -name 'openmm-cpp-forces-*.tar.bz2' \))
+          test -n "$PACKAGES" || { echo "No conda packages found in $outdir"; exit 1; }
+          echo "$PACKAGES"
+          if [ "$EVENT" == "pull_request" ]; then
+            echo "Deployment is deactivated in pull requests"
+          else
+            echo "::group::Uploading packages to mdtools conda channel"
+            export ANACONDA_API_TOKEN=${{ secrets.ANACONDA_TOKEN }}
+            anaconda upload --user mdtools --force --label main $PACKAGES
+            echo "::endgroup::"
+          fi

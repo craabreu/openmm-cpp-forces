@@ -70,8 +70,8 @@ release = ''
 pygments_style = 'trac'
 templates_path = ['.']
 extlinks = {
-    'issue': ('https://github.com/RedesignScience/openmm-cpp-forces/issues/%s', '#'),
-    'pr': ('https://github.com/RedesignScience/openmm-cpp-forces/pull/%s', 'PR #'),
+    'issue': ('https://github.com/craabreu/openmm-cpp-forces/issues/%s', '#'),
+    'pr': ('https://github.com/craabreu/openmm-cpp-forces/pull/%s', 'PR #'),
 }
 
 # on_rtd is whether we are on readthedocs.org
@@ -84,7 +84,7 @@ html_theme = 'alabaster'
 html_static_path = ['_static']
 html_theme_options = {
     'github_button': False,
-    'github_user': 'RedesignScience',
+    'github_user': 'craabreu',
     'github_repo': 'openmmcppforces',
 }
 html_sidebars = {
