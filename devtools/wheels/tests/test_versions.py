@@ -96,3 +96,15 @@ def test_wheel_count_matches_matrix():
     entries = versions.load_versions()
     matrix = versions.build_matrix(entries, full=True)
     assert versions.wheel_count(entries) == sum(len(jobs) for jobs in matrix.values()) == 41
+
+
+def test_check_release_accepts_matching_tag(tmp_path):
+    (tmp_path / "CMakeLists.txt").write_text("PROJECT(OpenMMCPPForces VERSION 0.2.0)\n")
+    versions.check_release("v0.2.0", tmp_path)
+
+
+def test_check_release_rejects_unbumped_source(tmp_path):
+    # Publishing v0.2.0 from a source still at 0.1.1 would upload unremovable 0.1.1 wheels to PyPI
+    (tmp_path / "CMakeLists.txt").write_text("PROJECT(OpenMMCPPForces VERSION 0.1.1)\n")
+    with pytest.raises(ValueError, match="v0.2.0.*0.1.1"):
+        versions.check_release("v0.2.0", tmp_path)

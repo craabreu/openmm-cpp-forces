@@ -69,12 +69,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
+          # A missing environment makes gh print an error body instead of a count, so require a positive count
           REVIEWERS=$(gh api repos/$REPOSITORY/environments/pypi \
-            --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' || echo 0)
-          if [ "$REVIEWERS" = "0" ]; then
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' 2>/dev/null) || REVIEWERS=0
+          if ! [[ "$REVIEWERS" =~ ^[1-9][0-9]*$ ]]; then
             echo "::error::Create the 'pypi' environment with a required reviewer before publishing to PyPI"
             exit 1
           fi
+      - name: "Release tag matches the source version"
+        # PyPI never accepts a version twice, so a forgotten version bump would be permanent
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python devtools/wheels/versions.py check-release "$RELEASE_TAG" .
       - id: matrix
         name: "Build matrix"
         env:

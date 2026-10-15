@@ -48,6 +48,12 @@ def source_version(source_dir):
     return match.group(1)
 
 
+def check_release(tag, source_dir):
+    base = source_version(source_dir)
+    if tag.removeprefix("v") != base:
+        raise ValueError(f"release tag {tag} does not match version {base} in CMakeLists.txt")
+
+
 def release_version(base, post):
     return base if post == 0 else f"{base}.post{post}"
 
@@ -99,6 +105,9 @@ def main(argv=None):
     command = commands.add_parser("pins", help="print '<openmm pin> <expected release>' lines")
     command.add_argument("source_dir")
     commands.add_parser("count", help="print the number of wheels in a full build")
+    command = commands.add_parser("check-release", help="fail unless a release tag matches the source version")
+    command.add_argument("tag")
+    command.add_argument("source_dir")
     args = parser.parse_args(argv)
 
     entries = load_versions()
@@ -110,6 +119,8 @@ def main(argv=None):
         print(entries[args.minor][args.name])
     elif args.command == "count":
         print(wheel_count(entries))
+    elif args.command == "check-release":
+        check_release(args.tag, args.source_dir)
     elif args.command == "pins":
         base = source_version(args.source_dir)
         for entry in entries.values():
