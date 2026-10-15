@@ -24,7 +24,7 @@ $`\mathbf{c}_j`$, the composite RMSD is
 
 ```math
 d_{\rm crms}(\mathbf{r}) = \sqrt{
-    \frac{1}{n} \min_{\mathbf{q} \in \mathbb{R}^4,\ \|\mathbf{q}\| = 1}
+    \frac{1}{n} \min_{\substack{\mathbf{q} \in \mathbb{R}^4 \\ \|\mathbf{q}\| = 1}}
     \sum_{j=1}^{m} \sum_{i \in \mathbf{g}_j} \left\|
         \mathbf{A}(\mathbf{q})\left(\mathbf{r}_i - \mathbf{c}_j\right)
         - \mathbf{r}_i^{\rm ref} + \mathbf{c}_j^{\rm ref}
