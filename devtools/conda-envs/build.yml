@@ -3,14 +3,14 @@ channels:
   - conda-forge
 dependencies:
   - cmake
-  - gxx_linux-64
+  - cxx-compiler
   - make
   - numpy
   - openmm
-  - pip >=22.2
+  - pip
   - python
-  - swig =4.0
-  - sysroot_linux-64 2.17
+  - setuptools
+  - swig
 
   # Test dependencies
   - openmmtools
