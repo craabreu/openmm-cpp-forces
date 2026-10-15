@@ -25,14 +25,14 @@ $`\mathbf{c}_j`$, the composite RMSD is
 ```math
 d_{\rm crms}(\mathbf{r}) = \sqrt{
     \frac{1}{n} \min_{\mathbf{q} \in \mathbb{R}^4,\ \|\mathbf{q}\| = 1}
-    \sum_{j=1}^m \sum_{i \in \mathbf{g}_j} \left\|
+    \sum_{j=1}^{m} \sum_{i \in \mathbf{g}_j} \left\|
         \mathbf{A}(\mathbf{q})\left(\mathbf{r}_i - \mathbf{c}_j\right)
         - \mathbf{r}_i^{\rm ref} + \mathbf{c}_j^{\rm ref}
     \right\|^2
 }
 ```
 
-where $`n = \sum_{j=1}^m n_j`$, $`\mathbf{r}_i^{\rm ref}`$ and $`\mathbf{c}_j^{\rm ref}`$ are reference
+where $`n = \sum_{j=1}^{m} n_j`$, $`\mathbf{r}_i^{\rm ref}`$ and $`\mathbf{c}_j^{\rm ref}`$ are reference
 positions and centroids, and $`\mathbf{A}(\mathbf{q})`$ is the rotation matrix of the unit quaternion
 $`\mathbf{q}`$. A single rotation aligns all groups, so their relative orientations matter but their
 relative positions do not. The energy of the force equals $`d_{\rm crms}`$, which makes it a
