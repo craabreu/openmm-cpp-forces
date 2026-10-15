@@ -5,7 +5,7 @@ import numpy as np
 
 openmm_dir = '@OPENMM_DIR@'
 header_dir = '@PLUGIN_HEADER_DIR@'
-library_dir = '@PLUGIN_HEADER_DIR@'
+library_dir = '@PLUGIN_LIBRARY_DIR@'
 module_dir = '@MODULE_NAME@'
 
 # setup extra compile and link arguments on Mac
@@ -13,10 +13,8 @@ extra_compile_args = ['-std=c++17']
 extra_link_args = []
 
 if platform.system() == 'Darwin':
-    extra_compile_args += ['-stdlib=libc++', '-mmacosx-version-min=10.7']
-    extra_link_args += [
-        '-stdlib=libc++', '-mmacosx-version-min=10.7', '-Wl', '-rpath', openmm_dir+'/lib'
-    ]
+    extra_compile_args += ['-stdlib=libc++']
+    extra_link_args += ['-stdlib=libc++', '-Wl,-rpath,' + os.path.join(openmm_dir, 'lib')]
 
 os.environ['CC'] = '@CMAKE_C_COMPILER@'
 os.environ['CXX'] = '@CMAKE_CXX_COMPILER@'
