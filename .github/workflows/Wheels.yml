@@ -1,0 +1,322 @@
+name: Wheels
+
+on:
+  release:
+    types: [published]
+  # Other changes are covered by the Linux and MacOS workflows
+  pull_request:
+    branches: ["main"]
+    paths: ["devtools/wheels/**", ".github/workflows/Wheels.yml", "python/**", "**/CMakeLists.txt"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit of the source to build"
+        required: true
+      target:
+        description: "Where to publish"
+        required: true
+        type: choice
+        options: ["testpypi", "pypi"]
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    # Prereleases are not published
+    if: github.event_name != 'release' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # to read the protection rules of the pypi environment
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      ref: ${{ steps.target.outputs.ref }}
+      target: ${{ steps.target.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: "Unit tests of the packaging tools"
+        run: |
+          pip install pytest setuptools wheel delocate
+          python -m pytest -q devtools/wheels/tests
+      - id: target
+        name: "Source ref and publishing target"
+        # User-controlled values go through the environment, never into the script text
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          INPUT_TARGET: ${{ inputs.target }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "ref=$INPUT_REF" >> $GITHUB_OUTPUT
+            echo "target=$INPUT_TARGET" >> $GITHUB_OUTPUT
+          elif [[ "$EVENT" == "release" ]]; then
+            echo "ref=$RELEASE_TAG" >> $GITHUB_OUTPUT
+            echo "target=pypi" >> $GITHUB_OUTPUT
+          else
+            echo "ref=$SHA" >> $GITHUB_OUTPUT
+            echo "target=none" >> $GITHUB_OUTPUT
+          fi
+      - name: "Require approval for PyPI uploads"
+        # GitHub creates a missing environment on first use, without protection rules
+        if: steps.target.outputs.target == 'pypi'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # A missing environment makes gh print an error body instead of a count, so require a positive count
+          REVIEWERS=$(gh api repos/$REPOSITORY/environments/pypi \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers")] | length' 2>/dev/null) || REVIEWERS=0
+          if ! [[ "$REVIEWERS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Create the 'pypi' environment with a required reviewer before publishing to PyPI"
+            exit 1
+          fi
+      - name: "Release tag matches the source version"
+        # PyPI never accepts a version twice, so a forgotten version bump would be permanent
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: python devtools/wheels/versions.py check-release "$RELEASE_TAG" .
+      - id: matrix
+        name: "Build matrix"
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT" == "pull_request" ]]; then
+            echo "matrix=$(python devtools/wheels/versions.py matrix)" >> $GITHUB_OUTPUT
+          else
+            echo "matrix=$(python devtools/wheels/versions.py matrix --full)" >> $GITHUB_OUTPUT
+          fi
+
+  linux:
+    needs: setup
+    name: "Linux OpenMM ${{ matrix.openmm }} Python ${{ matrix.python }}"
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_34_x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix).linux }}
+    steps:
+      - name: "Paths"
+        # Inside a container, ${{ github.workspace }} is the host path; $GITHUB_WORKSPACE is the container's
+        run: |
+          echo "TOOLS=$GITHUB_WORKSPACE/tools/devtools/wheels" >> $GITHUB_ENV
+          echo "SRC=$GITHUB_WORKSPACE/src" >> $GITHUB_ENV
+          echo "STAGE=$GITHUB_WORKSPACE/stage" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+          path: src
+      - name: "Python and dependencies"
+        run: |
+          PY=/opt/python/cp${MATRIX_PYTHON/./}-cp${MATRIX_PYTHON/./}/bin/python
+          $PY -m venv /opt/build-env
+          echo "/opt/build-env/bin" >> $GITHUB_PATH
+          /opt/build-env/bin/pip install \
+            "openmm==$($PY $TOOLS/versions.py field ${{ matrix.openmm }} openmm)" \
+            "swig==$($PY $TOOLS/versions.py field ${{ matrix.openmm }} swig)" \
+            cmake setuptools wheel delocate auditwheel patchelf pytest
+        env:
+          MATRIX_PYTHON: ${{ matrix.python }}
+      - name: "Build"
+        run: |
+          OMM=$(python -c "import openmm.version as v, os; print(os.path.dirname(v.openmm_library_path))")
+          cmake -S $SRC -B build -DCMAKE_BUILD_TYPE=Release -DOPENMM_DIR=$OMM \
+            -DPYTHON_EXECUTABLE=$(which python) -DCMAKE_INSTALL_PREFIX=$STAGE/OpenMM.libs
+          cmake --build build -j4 --target install
+          cmake --build build -j4 --target PythonInstall
+      - name: "C++ tests"
+        run: |
+          export LD_LIBRARY_PATH=$(python -c "import openmm.version as v; print(v.openmm_library_path)")
+          cd build && ctest --output-on-failure
+      - name: "Package"
+        run: |
+          python $TOOLS/package.py stage-module $STAGE
+          python $TOOLS/package.py fix-runtime-paths $STAGE
+          CPF_SOURCE_DIR=$SRC CPF_OPENMM_MINOR=${{ matrix.openmm }} CPF_STAGE_DIR=$STAGE \
+            pip wheel --no-deps --no-build-isolation -w raw $TOOLS
+          python $TOOLS/package.py inject raw/*.whl $STAGE
+          auditwheel repair -w dist --plat manylinux_2_34_x86_64 raw/*.whl \
+            --exclude 'libOpenMM*.so' --exclude 'libOpenMMCPPForces*.so'
+          python $TOOLS/package.py check dist/*.whl \
+            --require 'openmmcppforces/__init__.py' --require 'openmmcppforces/openmmcppforces.py' \
+            --require 'openmmcppforces/_openmmcppforces*' --require 'OpenMM.libs/lib/libOpenMMCPPForces.*' \
+            --require 'OpenMM.libs/include/CompositeRMSDForce.h'
+      - name: "Test in a clean venv"
+        run: |
+          VERSION=$(python $TOOLS/versions.py version $SRC ${{ matrix.openmm }})
+          /opt/python/cp${MATRIX_PYTHON/./}-cp${MATRIX_PYTHON/./}/bin/python -m venv /tmp/test-env
+          /tmp/test-env/bin/pip install --find-links dist "openmm-cpp-forces==$VERSION" pytest
+          /tmp/test-env/bin/pip check
+          cd /tmp && /tmp/test-env/bin/python $TOOLS/smoke.py $VERSION
+          # Run copies: in place, pytest would import the unconfigured source package
+          mkdir /tmp/pytests && cp $SRC/python/openmmcppforces/tests/test_*.py /tmp/pytests/
+          cd /tmp/pytests && /tmp/test-env/bin/python -m pytest -v
+        env:
+          MATRIX_PYTHON: ${{ matrix.python }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-linux-${{ matrix.openmm }}-${{ matrix.python }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  macos:
+    needs: setup
+    name: "macOS ${{ matrix.arch }} OpenMM ${{ matrix.openmm }} Python ${{ matrix.python }}"
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.setup.outputs.matrix).macos }}
+    env:
+      TOOLS: ${{ github.workspace }}/tools/devtools/wheels
+      SRC: ${{ github.workspace }}/src
+      STAGE: ${{ github.workspace }}/stage
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target }}
+      ARCHFLAGS: -arch ${{ matrix.arch }}
+      _PYTHON_HOST_PLATFORM: macosx-${{ matrix.target }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: "Dependencies"
+        run: |
+          python -m venv $RUNNER_TEMP/build-env
+          echo "$RUNNER_TEMP/build-env/bin" >> $GITHUB_PATH
+          $RUNNER_TEMP/build-env/bin/pip install \
+            "openmm==$(python $TOOLS/versions.py field ${{ matrix.openmm }} openmm)" \
+            "swig==$(python $TOOLS/versions.py field ${{ matrix.openmm }} swig)" \
+            cmake setuptools wheel delocate pytest
+      - name: "Build"
+        run: |
+          OMM=$(python -c "import openmm.version as v, os; print(os.path.dirname(v.openmm_library_path))")
+          cmake -S $SRC -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DOPENMM_DIR=$OMM -DPYTHON_EXECUTABLE=$(which python) -DCMAKE_INSTALL_PREFIX=$STAGE/OpenMM.libs
+          cmake --build build -j3 --target install
+          cmake --build build -j3 --target PythonInstall
+      - name: "C++ tests"
+        run: |
+          export DYLD_LIBRARY_PATH=$(python -c "import openmm.version as v; print(v.openmm_library_path)")
+          cd build && ctest --output-on-failure
+      - name: "Package"
+        run: |
+          python $TOOLS/package.py stage-module $STAGE
+          python $TOOLS/package.py fix-runtime-paths $STAGE
+          CPF_SOURCE_DIR=$SRC CPF_OPENMM_MINOR=${{ matrix.openmm }} CPF_STAGE_DIR=$STAGE \
+            pip wheel --no-deps --no-build-isolation -w dist $TOOLS
+          python $TOOLS/package.py inject dist/*.whl $STAGE
+          delocate-listdeps --all dist/*.whl
+          python $TOOLS/package.py check dist/*.whl \
+            --require 'openmmcppforces/__init__.py' --require 'openmmcppforces/openmmcppforces.py' \
+            --require 'openmmcppforces/_openmmcppforces*' --require 'OpenMM.libs/lib/libOpenMMCPPForces.*' \
+            --require 'OpenMM.libs/include/CompositeRMSDForce.h'
+      - name: "Test in a clean venv"
+        run: |
+          VERSION=$(python $TOOLS/versions.py version $SRC ${{ matrix.openmm }})
+          python -m venv $RUNNER_TEMP/test-env
+          $RUNNER_TEMP/test-env/bin/pip install --find-links dist "openmm-cpp-forces==$VERSION" pytest
+          $RUNNER_TEMP/test-env/bin/pip check
+          cd $RUNNER_TEMP && $RUNNER_TEMP/test-env/bin/python $TOOLS/smoke.py $VERSION
+          # Run copies: in place, pytest would import the unconfigured source package
+          mkdir $RUNNER_TEMP/pytests && cp $SRC/python/openmmcppforces/tests/test_*.py $RUNNER_TEMP/pytests/
+          cd $RUNNER_TEMP/pytests && $RUNNER_TEMP/test-env/bin/python -m pytest -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-macos-${{ matrix.arch }}-${{ matrix.openmm }}-${{ matrix.python }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    needs: [setup, linux, macos]
+    if: needs.setup.outputs.target != 'none'
+    environment: ${{ needs.setup.outputs.target }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REPOSITORY_URL: ${{ needs.setup.outputs.target == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: downloaded
+          merge-multiple: true
+      - name: "Sort wheels by release"
+        run: |
+          N=$(python3 -c "import json; print(len(json.load(open('devtools/wheels/openmm-versions.json'))))")
+          if [ "$N" -gt 4 ]; then echo "Add publish slots for post numbers >= 4"; exit 1; fi
+          python3 devtools/wheels/package.py arrange downloaded out --expected $(python3 devtools/wheels/versions.py count)
+          ls -R out
+      # Releases in increasing post order; skip-existing lets a failed publish be re-run
+      - if: hashFiles('out/0-base/*.whl') != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: out/0-base, repository-url: "${{ env.REPOSITORY_URL }}", skip-existing: true}
+      - if: hashFiles('out/1-base/*.whl') != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: out/1-base, repository-url: "${{ env.REPOSITORY_URL }}", skip-existing: true}
+      - if: hashFiles('out/2-base/*.whl') != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: out/2-base, repository-url: "${{ env.REPOSITORY_URL }}", skip-existing: true}
+      - if: hashFiles('out/3-base/*.whl') != ''
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with: {packages-dir: out/3-base, repository-url: "${{ env.REPOSITORY_URL }}", skip-existing: true}
+
+  resolution:
+    needs: [setup, publish]
+    if: needs.setup.outputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tools
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.ref }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: "Each OpenMM pin resolves to its release"
+        # Our wheels come from TestPyPI as local files; every dependency comes from PyPI only
+        run: |
+          python tools/devtools/wheels/versions.py pins src > pins.txt
+          while read PIN EXPECTED; do
+            for attempt in 1 2 3 4 5; do
+              pip download -q --no-deps -d wheels --index-url https://test.pypi.org/simple/ \
+                "openmm-cpp-forces==$EXPECTED" && break
+              sleep 60
+            done
+            ls wheels | grep -F -- "-$EXPECTED-"
+          done < pins.txt
+          while read PIN EXPECTED; do
+            python -m venv /tmp/env-$EXPECTED
+            /tmp/env-$EXPECTED/bin/pip install -q --find-links wheels "$PIN" "openmm-cpp-forces==${EXPECTED%%.post*}.*"
+            GOT=$(/tmp/env-$EXPECTED/bin/python -c "from importlib.metadata import version; print(version('openmm-cpp-forces'))")
+            echo "$PIN -> $GOT (expected $EXPECTED)"
+            test "$GOT" = "$EXPECTED"
+          done < pins.txt
+          # Without an OpenMM constraint, pip takes the newest post-release (and upgrades OpenMM)
+          LATEST=$(tail -1 pins.txt | cut -d' ' -f2)
+          python -m venv /tmp/env-latest
+          /tmp/env-latest/bin/pip install -q --find-links wheels "openmm-cpp-forces==${LATEST%%.post*}.*"
+          GOT=$(/tmp/env-latest/bin/python -c "from importlib.metadata import version; print(version('openmm-cpp-forces'))")
+          echo "unconstrained -> $GOT (expected $LATEST)"
+          test "$GOT" = "$LATEST"

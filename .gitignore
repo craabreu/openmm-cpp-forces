@@ -6,3 +6,7 @@ profiling/
 docs/_build/
 docs/pythonapi/*.rst
 !docs/pythonapi/index.rst
+
+# Python caches (from the packaging tests)
+__pycache__/
+.pytest_cache/
