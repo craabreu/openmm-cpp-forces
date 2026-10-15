@@ -68,6 +68,14 @@ Or:
     mamba install -c mdtools openmm-cpp-forces
 ```
 
+If you installed OpenMM from PyPI, use pip instead:
+
+```bash
+    pip install openmm-cpp-forces
+```
+
+pip picks the build that matches the installed OpenMM (8.4 or later). The forces are computed on the host and work with every OpenMM platform; for GPU support, also install OpenMM's CUDA add-on that matches your driver, `openmm-cuda-12` or `openmm-cuda-13`.
+
 To use OpenMM-CPP-Forces in your own Python script or Jupyter notebook, simply import it as follows:
 
 ```python
