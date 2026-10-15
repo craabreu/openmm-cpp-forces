@@ -7,6 +7,8 @@ This `OpenMM`_ plugin provides Platform-agnostic Force classes.
 Installation and Usage
 ======================
 
+OpenMM-CPP-Forces requires OpenMM 8.4 or later.
+
 OpenMM-CPP-Forces is available as a conda package on the `mdtools`_ channel. To install it, run:
 
 .. code-block:: bash

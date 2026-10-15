@@ -46,7 +46,7 @@ Documentation for this plugin is available at [GitHub Pages], including its Pyth
 Installation
 ============
 
-The plugin is distributed on the [mdtools] conda channel:
+The plugin requires OpenMM 8.4 or later. It is distributed on the [mdtools] conda channel:
 
 ```bash
 mamba install -c conda-forge -c mdtools openmm-cpp-forces
